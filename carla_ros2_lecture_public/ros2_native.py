@@ -14,6 +14,8 @@ from sensor_msgs.msg import Image as RosImage
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
 
+import subprocess
+
 
 class DepthColorizer:
     """Convert depth image to colored image and publish as ROS Image."""
@@ -156,8 +158,9 @@ def main(args):
         settings.fixed_delta_seconds = 0.05
         world.apply_settings(settings)
 
-        # traffic_manager = client.get_trafficmanager()
-        # traffic_manager.set_synchronous_mode(True)
+        # 더미 차량 생성 관련 (불필요 시 주석 처리)
+        traffic_manager = client.get_trafficmanager()
+        traffic_manager.set_synchronous_mode(False)
 
         with open(args.file) as f:
             config = json.load(f)

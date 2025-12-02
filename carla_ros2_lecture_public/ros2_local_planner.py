@@ -34,13 +34,13 @@ class LocalPathAvoid(Node):
         self.safe_lat = 2.0
         self.max_offset = 3.0
 
-        self.load_global_path("global_path.csv")
+        self._load_global_path("global_path.csv")
         if not self.global_xy:
             self.get_logger().warn("global_path.csv is empty or not found.")
 
         self.timer = self.create_timer(0.1, self.timer_cb)
 
-    def load_global_path(self, filename: str):
+    def _load_global_path(self, filename: str):
         """Load global path from csv file: x,y per line."""
         try:
             with open(filename, "r") as f:
@@ -82,7 +82,7 @@ class LocalPathAvoid(Node):
             return
 
         x, y = self.current_xy
-        idx = self.find_nearest_index(x, y, self.global_xy)
+        idx = self._find_nearest_index(x, y, self.global_xy)
         if idx is None:
             return
 
@@ -92,12 +92,13 @@ class LocalPathAvoid(Node):
             x2, y2 = self.global_xy[idx]
         yaw = math.atan2(y2 - y, x2 - x)
 
-        side = self.decide_side(self.obstacles)
+        side = self._decide_side(self.obstacles)
 
         path = Path()
         path.header.stamp = self.get_clock().now().to_msg()
         path.header.frame_id = "map"
 
+        # 로컬 경로 생성(핵심 로직)
         s = 0.0
         prev_px, prev_py = x, y
         i = idx
@@ -127,7 +128,13 @@ class LocalPathAvoid(Node):
 
         self.pub_local.publish(path)
 
-    def find_nearest_index(self, x: float, y: float, pts: List[Tuple[float, float]]):
+    # 가장 가까운 글로벌 경로의 지점 인덱스 찾기
+    '''
+    개선점
+    - 현재는 인덱스 0부터 전부 탐색 후 결정됨 = O(n) = 비효율적
+    - 고속 탐색 알고리즘 적용 필요
+    '''
+    def _find_nearest_index(self, x: float, y: float, pts: List[Tuple[float, float]]):
         min_d = float("inf")
         idx = None
         for i, (px, py) in enumerate(pts):
@@ -137,7 +144,13 @@ class LocalPathAvoid(Node):
                 idx = i
         return idx
 
-    def decide_side(self, obs_xy: List[Tuple[float, float]]) -> int:
+    # 좌측 또는 우측 회피 결정
+    '''
+    개선점
+    - 2개 이상의 장애물이 있는 경우
+    - 막다른 골목인 경우(이 경우는 테스트 환경에서 잘 없어서, 일단 무시)
+    '''
+    def _decide_side(self, obs_xy: List[Tuple[float, float]]) -> int:
         if not obs_xy:
             return 0
         front = []
