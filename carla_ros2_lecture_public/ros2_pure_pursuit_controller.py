@@ -8,9 +8,11 @@ from sensor_msgs.msg import NavSatFix
 from nav_msgs.msg import Path
 from geometry_msgs.msg import Twist
 
+import argparse
+
 
 class PurePursuitFromGNSS(Node):
-    def __init__(self):
+    def __init__(self, path_num: int = 1):
         super().__init__("pure_pursuit_controller")
 
         # 구독자
@@ -49,7 +51,7 @@ class PurePursuitFromGNSS(Node):
         self.is_goal_reached = False
 
         # ⭐ Global Path 로드 (Local Planner와 동일)
-        self._load_global_path("global_path.csv")
+        self._load_global_path(f"../path/global_path_{path_num}.csv")
         if not self.global_xy:
             self.get_logger().warn("global_path.csv is empty or not found.")
         elif len(self.global_xy) > 0:
@@ -214,9 +216,9 @@ class PurePursuitFromGNSS(Node):
         self.pub_cmd.publish(cmd)
 
 
-def main(args=None):
+def main(args=None, path_num: int = 1):
     rclpy.init(args=args)
-    node = PurePursuitFromGNSS()
+    node = PurePursuitFromGNSS(path_num=path_num)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
@@ -226,5 +228,7 @@ def main(args=None):
 
 
 if __name__ == "__main__":
-    main()
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--path_num', type=int, default=1, choices=[1,2,3,4], help='Global path number to use (e.g., 1 or 2)')
+    args = parser.parse_args()
+    main(path_num=args.path_num)
