@@ -140,7 +140,7 @@ def main():
             
             if actor:
                 if type_name in ["Vehicle", "Cyclist"]:
-                    actor.set_autopilot(False)
+                    actor.set_autopilot(False,8005)
                     actor.set_simulate_physics(True)
                     control = carla.VehicleControl()
                     control.hand_brake = True
