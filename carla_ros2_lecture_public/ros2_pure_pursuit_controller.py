@@ -29,7 +29,6 @@ class PurePursuitFromGNSS(Node):
         self.lat0 = None
         self.lon0 = None
         self.cos_lat0 = 1.0
-
         # 상태 변수
         self.curr_xy: Optional[Tuple[float, float]] = None
         self.prev_xy: Optional[Tuple[float, float]] = None
