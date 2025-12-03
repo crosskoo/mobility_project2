@@ -14,8 +14,6 @@ from sensor_msgs.msg import Image as RosImage
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
 
-import subprocess
-
 
 class DepthColorizer:
     """Convert depth image to colored image and publish as ROS Image."""
@@ -64,7 +62,7 @@ def show_spectator(image: carla.Image):
     cv2.waitKey(1)
 
 
-def _setup_vehicle(world, config):
+def _setup_vehicle(world, config, reverse=False):
     logging.debug("Spawning vehicle: {}".format(config.get("type")))
 
     bp_library = world.get_blueprint_library()
@@ -74,9 +72,14 @@ def _setup_vehicle(world, config):
     bp.set_attribute("role_name", config.get("id"))
     bp.set_attribute("ros_name", config.get("id"))
 
+
+    spawn = map_.get_spawn_points()[0]
+    if reverse:
+        spawn.rotation.yaw += 180.0   # 🔥 차량 방향 180도 뒤집기
+
     return world.spawn_actor(
         bp,
-        map_.get_spawn_points()[0],
+        spawn,
         attach_to=None
     )
 
@@ -158,13 +161,13 @@ def main(args):
         settings.fixed_delta_seconds = 0.05
         world.apply_settings(settings)
 
-        #traffic_manager = client.get_trafficmanager()
-        #traffic_manager.set_synchronous_mode(False)
+        # traffic_manager = client.get_trafficmanager()
+        # traffic_manager.set_synchronous_mode(True)
 
         with open(args.file) as f:
             config = json.load(f)
 
-        vehicle = _setup_vehicle(world, config)
+        vehicle = _setup_vehicle(world, config, reverse=args.reverse)
         sensors = _setup_sensors(
             world,
             vehicle,
@@ -251,7 +254,8 @@ if __name__ == '__main__':
                            help='File to be executed (e.g. original_tesla.json)')
     argparser.add_argument('-v', '--verbose', action='store_true', dest='debug',
                            help='print debug information')
-
+    argparser.add_argument('--reverse', action='store_true',
+                           help='Spawn the vehicle facing the opposite direction')
     args = argparser.parse_args()
 
     log_level = logging.DEBUG if args.debug else logging.INFO

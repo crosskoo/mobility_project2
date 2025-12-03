@@ -87,7 +87,17 @@ class LidarObstaclesSimple(Node):
 
     def _publish(self, obs, src):
         pa = PoseArray(); pa.header = src.header
-        ma = MarkerArray(); mid=0
+        ma = MarkerArray()
+        
+        # ⭐ 기존 마커 전부 삭제
+        delete_marker = Marker()
+        delete_marker.header = src.header
+        delete_marker.ns = 'obs'
+        delete_marker.action = Marker.DELETEALL
+        ma.markers.append(delete_marker)
+        
+        # 새 마커 추가
+        mid = 0
         for (cx,cy,w,h,r) in obs:
             p = Pose(); p.position.x=float(cx); p.position.y=float(cy); p.orientation.w=1.0
             pa.poses.append(p)

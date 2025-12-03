@@ -12,7 +12,7 @@ import argparse
 
 
 class PurePursuitFromGNSS(Node):
-    def __init__(self, path_num: int = 1):
+    def __init__(self, args):
         super().__init__("pure_pursuit_controller")
 
         # 구독자
@@ -40,18 +40,18 @@ class PurePursuitFromGNSS(Node):
         self.goal_xy: Optional[Tuple[float, float]] = None
 
         # 제어 파라미터
-        self.lookahead = 6.0
-        self.wheel_base = 2.7
-        self.target_speed = 5.0  # m/s
+        self.lookahead = args.lookahead
+        self.wheel_base = args.wheel_base
+        self.target_speed = args.target_speed  # m/s
         
         # ⭐ 목적지 도달 파라미터
-        self.goal_threshold = 2.0      # 정지 거리 (m)
-        self.slow_zone = 15.0          # 감속 시작 거리 (m)
-        self.min_speed = 1.0           # 최소 속도 (m/s)
+        self.goal_threshold = args.goal_threshold   # 정지 거리 (m)
+        self.slow_zone = args.slow_zone          # 감속 시작 거리 (m)
+        self.min_speed = args.min_speed           # 최소 속도 (m/s)
         self.is_goal_reached = False
 
         # ⭐ Global Path 로드 (Local Planner와 동일)
-        self._load_global_path(f"../path/global_path_{path_num}.csv")
+        self._load_global_path(f"../path/global_path_{args.path_num}.csv")
         if not self.global_xy:
             self.get_logger().warn("global_path.csv is empty or not found.")
         elif len(self.global_xy) > 0:
@@ -110,7 +110,7 @@ class PurePursuitFromGNSS(Node):
         ]
 
     # ⭐ 속도 계산 함수
-    def calculate_speed(self, dist_to_goal: float) -> float:
+    def _calculate_speed(self, dist_to_goal: float) -> float:
         """목적지까지 거리에 따른 속도 계산"""
         if dist_to_goal <= self.goal_threshold:
             return 0.0  # 정지
@@ -142,7 +142,7 @@ class PurePursuitFromGNSS(Node):
             )
             
             # 거리 기반 속도 계산
-            current_speed = self.calculate_speed(dist_to_goal)
+            current_speed = self._calculate_speed(dist_to_goal)
             
             # ⭐ 목적지 도달 시 정지
             if current_speed == 0.0:
@@ -216,9 +216,9 @@ class PurePursuitFromGNSS(Node):
         self.pub_cmd.publish(cmd)
 
 
-def main(args=None, path_num: int = 1):
+def main(args=None, cargs=None):
     rclpy.init(args=args)
-    node = PurePursuitFromGNSS(path_num=path_num)
+    node = PurePursuitFromGNSS(args=cargs)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
@@ -230,5 +230,11 @@ def main(args=None, path_num: int = 1):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_num', type=int, default=1, choices=[1,2,3,4], help='Global path number to use (e.g., 1 or 2)')
+    parser.add_argument('--lookahead', type=float, default=5.0, help='Lookahead distance in meters')
+    parser.add_argument('--wheel_base', type=float, default=2.7, help='Wheel base of the vehicle in meters')
+    parser.add_argument('--target_speed', type=float, default=5.0, help='Target speed in m/s')
+    parser.add_argument('--goal_threshold', type=float, default=2.0, help='Distance to goal to consider as reached (m)')
+    parser.add_argument('--slow_zone', type=float, default=15.0, help='Distance to start slowing down (m)')
+    parser.add_argument('--min_speed', type=float, default=1.0, help='Minimum speed when approaching goal (m/s)')
     args = parser.parse_args()
-    main(path_num=args.path_num)
+    main(cargs=args)

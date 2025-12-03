@@ -12,7 +12,12 @@ import argparse
 
 
 class LocalPathAvoid(Node):
-    def __init__(self, path_num: int = 1):
+    def __init__(self, 
+                 path_num: int=1, 
+                 L: float=20.0, 
+                 ds: float=0.5, 
+                 safe_lat: float=1.0, 
+                 max_offset: float=3.5):
         super().__init__("local_path_avoid")
 
         self.sub_gnss = self.create_subscription(
@@ -31,14 +36,16 @@ class LocalPathAvoid(Node):
         self.global_xy: List[Tuple[float, float]] = []   # loaded from csv
         self.obstacles: List[Tuple[float, float]] = []   # in vehicle frame (x,y)
 
-        self.L = 20.0
-        self.ds = 0.5
-        self.safe_lat = 2.0
-        self.max_offset = 3.0
+        self.L = L
+        self.ds = ds
+        self.safe_lat = safe_lat      # 차량 y기준 좌우 2m 이내면 장애물
+        self.max_offset = max_offset    # 최대 회피 lateral offset
 
-        self._load_global_path(f"../path/global_path_{path_num}.csv")
+        self.prev_idx: Optional[int] = None  # ★ 전역 경로 최근접 인덱스 캐시
+
+        self.load_global_path(f"../path/global_path_{path_num}.csv")  # 네가 쓰는 파일명으로 맞춰라
         if not self.global_xy:
-            self.get_logger().warn("global_path.csv is empty or not found.")
+            self.get_logger().warn("global path is empty or not found.")
 
         self.timer = self.create_timer(0.1, self.timer_cb)
 
@@ -60,7 +67,9 @@ class LocalPathAvoid(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to load {filename}: {e}")
 
-    def gnss_cb(self, msg: NavSatFix):
+    def gnss_cb(self, msg: NavSatFix): 
+        # gnns값을 받고, 위경도 근사값을 이용하여 차량 첫스폰 위치를 기준으로 얼마나 
+        # 떨어져있는지 [m]단위로 반환
         lat = msg.latitude
         lon = msg.longitude
         if self.lat0 is None:
@@ -71,65 +80,73 @@ class LocalPathAvoid(Node):
         else:
             self.current_xy = self.latlon_to_xy(lat, lon)
 
-    def latlon_to_xy(self, lat: float, lon: float):
+    def latlon_to_xy(self, lat: float, lon: float): # 3. 근사
         dx = (lon - self.lon0) * (111320.0 * self.cos_lat0)
         dy = (lat - self.lat0) * 110540.0
         return dx, dy
 
     def obs_cb(self, msg: PoseArray):
         self.obstacles = [(p.position.x, p.position.y) for p in msg.poses]
-
+    
+    # self.currnet_xy에 [m]단위 상대위치값
+    # self.obstacles에 차량 기준 상대좌표 위치값
     def timer_cb(self):
         if self.current_xy is None or len(self.global_xy) < 2:
             return
 
         x, y = self.current_xy
+
+        # ① 전역 경로에서 현재 위치와 가장 가까운 인덱스
         idx = self._find_nearest_index(x, y, self.global_xy)
         if idx is None:
             return
 
-        if idx + 1 < len(self.global_xy):
-            x2, y2 = self.global_xy[idx + 1]
-        else:
-            x2, y2 = self.global_xy[idx]
-        yaw = math.atan2(y2 - y, x2 - x)
-
+        # ② 장애물 기준 회피 방향 (연속적인 side 값: -1.0 ~ +1.0)
         side = self._decide_side(self.obstacles)
 
+        # ③ path 메시지 준비 (map 좌표계 기준)
         path = Path()
         path.header.stamp = self.get_clock().now().to_msg()
         path.header.frame_id = "map"
 
-        # 로컬 경로 생성(핵심 로직)
+        # ④ local path 생성
         s = 0.0
         prev_px, prev_py = x, y
         i = idx
-        
-        while i < len(self.global_xy) and s <= self.L:
+
+        n = len(self.global_xy)
+
+        while i < n and s <= self.L:
             gx, gy = self.global_xy[i]
+
+            # 현재 점까지의 누적 거리
             seg = math.hypot(gx - prev_px, gy - prev_py)
             s += seg
             prev_px, prev_py = gx, gy
 
             px, py = gx, gy
-            
-            if side != 0:
-                # ⭐ 각 점마다 로컬 방향 계산
-                if i + 1 < len(self.global_xy):
-                    x_next, y_next = self.global_xy[i + 1]
-                    local_yaw = math.atan2(y_next - gy, x_next - gx)
+
+            if side != 0.0:
+                # ---- ④-1. Bezier 기반 offset 프로파일 ----
+                # t: 0 ~ 1, 3t(1-t) : 가운데에서 부드럽게 최대
+                t = min(max(s / self.L, 0.0), 1.0)
+                bezier = 3.0 * t * (1.0 - t)  # 0~0.75 범위
+                offset = self.max_offset * bezier * side  # side까지 포함 (연속값)
+
+                # ---- ④-2. 각 점에서의 local yaw ----
+                if i + 1 < n:
+                    gx2, gy2 = self.global_xy[i + 1]
                 else:
-                    local_yaw = yaw
-            
-                # ⭐ 부드러운 offset (3차 함수)
-                t = min(s / self.L, 1.0)
-                smooth_t = 3 * t**2 - 2 * t**3
-                offset = self.max_offset * smooth_t * (1.0 - smooth_t) * 4
-                
-                nx = -math.sin(local_yaw)
-                ny = math.cos(local_yaw)
-                px += offset * side * nx
-                py += offset * side * ny
+                    gx2, gy2 = gx, gy
+
+                yaw_i = math.atan2(gy2 - gy, gx2 - gx)
+
+                # tangent 기준 법선벡터(nx, ny) : 왼쪽(+y)이 +방향
+                nx = -math.sin(yaw_i)
+                ny =  math.cos(yaw_i)
+
+                px += offset * nx
+                py += offset * ny
 
             ps = PoseStamped()
             ps.header = path.header
@@ -137,45 +154,104 @@ class LocalPathAvoid(Node):
             ps.pose.position.y = float(py)
             ps.pose.position.z = 0.0
             path.poses.append(ps)
+
             i += 1
 
         self.pub_local.publish(path)
+    def _compute_local_yaw(self, pts):
+        yaws = []
+        for i in range(len(pts)-1):
+            x1, y1 = pts[i]
+            x2, y2 = pts[i+1]
+            yaws.append(math.atan2(y2 - y1, x2 - x1))
+        yaws.append(yaws[-1])
+        return yaws
 
-    # 가장 가까운 글로벌 경로의 지점 인덱스 찾기
-    '''
-    개선점
-    - 현재는 인덱스 0부터 전부 탐색 후 결정됨 = O(n) = 비효율적
-    - 고속 탐색 알고리즘 적용 필요
-    '''
     def _find_nearest_index(self, x: float, y: float, pts: List[Tuple[float, float]]):
+        if not pts:
+            return None
+
+        n = len(pts)
+
+        # ★ 이전 인덱스 주변만 먼저 검색해서 연산량 감소
+        if self.prev_idx is not None:
+            radius = 50  # 전역 경로가 촘촘하면 50이면 충분
+            start = max(0, self.prev_idx - radius)
+            end = min(n, self.prev_idx + radius)
+        else:
+            start = 0
+            end = n
+
         min_d = float("inf")
         idx = None
-        for i, (px, py) in enumerate(pts):
+
+        for i in range(start, end):
+            px, py = pts[i]
             d = (px - x) ** 2 + (py - y) ** 2
             if d < min_d:
                 min_d = d
                 idx = i
+
+        # 혹시 초기 프레임 등에서 튀어버린 경우 전체 검색 한번 더
+        if idx is None:
+            for i, (px, py) in enumerate(pts):
+                d = (px - x) ** 2 + (py - y) ** 2
+                if d < min_d:
+                    min_d = d
+                    idx = i
+
+        self.prev_idx = idx
         return idx
 
-    # 좌측 또는 우측 회피 결정
-    '''
-    개선점
-    - 2개 이상의 장애물이 있는 경우
-    - 막다른 골목인 경우(이 경우는 테스트 환경에서 잘 없어서, 일단 무시)
-    '''
-    def _decide_side(self, obs_xy: List[Tuple[float, float]]) -> int:
+    def _decide_side(self, obs_xy: List[Tuple[float, float]]) -> float:
+        """
+        장애물 여러 개를 고려해서 회피 방향 결정.
+        반환값 side:
+           > 0  → 경로 왼쪽으로 회피 (장애물이 오른쪽에 많다)
+           < 0  → 경로 오른쪽으로 회피 (장애물이 왼쪽에 많다)
+           = 0  → 회피 없음
+        """
         if not obs_xy:
-            return 0
+            return 0.0
+
         front = []
         for ox, oy in obs_xy:
+            # 전방 L[m] 이내 & 좌우 safe_lat[m] 이내 장애물만 고려
             if 0.0 < ox < self.L and abs(oy) < self.safe_lat:
                 front.append((ox, oy))
-        if not front:
-            return 0
-        front.sort(key=lambda p: p[0])
-        _, y_local = front[0]
-        return +1 if y_local < 0.0 else -1  # obstacle right -> go left
 
+        if not front:
+            return 0.0
+
+        # 좌/우 쪽 "위험도" 계산 (가까울수록, 가운데에 있을수록 가중치 큼)
+        left_cost = 0.0
+        right_cost = 0.0
+
+        for ox, oy in front:
+            dist_forward = max(0.1, ox)
+            lat_dist = max(0.1, abs(oy))
+            w = 1.0 / (dist_forward * lat_dist)
+
+            if oy > 0:      # 차량 기준 왼쪽 장애물
+                left_cost += w
+            elif oy < 0:    # 차량 기준 오른쪽 장애물
+                right_cost += w
+
+        # 위험도가 전혀 없으면 (전부 y≈0인 경우 등)
+        if left_cost == 0.0 and right_cost == 0.0:
+            # 가장 가까운 하나 기준으로 기존 방식 fallback
+            front.sort(key=lambda p: p[0])  # x(전방거리) 기준
+            _, y_local = front[0]
+            return 1.0 if y_local < 0.0 else -1.0
+
+        # 위험도 비율로 연속 side 계산
+        # right_cost > left_cost → 장애물 오른쪽이 더 위험 → 왼쪽으로 회피 (side > 0)
+        num = (right_cost - left_cost)
+        den = (right_cost + left_cost)
+        raw = num / den  # -1 ~ +1 근처
+        side = max(-1.0, min(1.0, raw))
+
+        return side
 
 def main(args=None, path_num: int = 1):
     rclpy.init(args=args)
@@ -191,5 +267,9 @@ def main(args=None, path_num: int = 1):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_num', type=int, default=1, choices=[1,2,3,4], help='Global path number to use (e.g., 1 or 2)')
+    parser.add_argument('--L', type=float, default=20.0, help='Lookahead distance in meters')
+    parser.add_argument('--ds', type=float, default=0.5, help='Distance step in meters')
+    parser.add_argument('--safe_lat', type=float, default=1.0, help='Safe lateral distance in meters')
+    parser.add_argument('--max_offset', type=float, default=3.5, help='Maximum lateral offset in meters')
     args = parser.parse_args()
-    main(path_num=args.path_num)
+    main(path_num=args.path_num, L=args.L, ds=args.ds, safe_lat=args.safe_lat, max_offset=args.max_offset)
