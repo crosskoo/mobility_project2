@@ -110,7 +110,7 @@ def main():
         n_random_vehicles = TOTAL_VEHICLES_TARGET
         print(f"--- Spawning {n_random_vehicles} Random Vehicles ---")
         
-        available_spawn_points = [sp for i, sp in enumerate(spawn_points) if i not in used_indices]
+        available_spawn_points = [sp for i, sp in enumerate(spawn_points) if i != 0]
         random.shuffle(available_spawn_points)
 
         vehicle_bps = bp_lib.filter('vehicle.*')
