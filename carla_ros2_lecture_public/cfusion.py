@@ -28,8 +28,8 @@ class SensorFusionNode(Node):
         
         print("=== [Fusion Node: Color-Aware Traffic Logic & 3rd Person View] ===")
         cwd = os.getcwd()
-        path_m = os.path.join(cwd, "m.pt")
-        path_original = os.path.join(cwd, "original.pt")
+        path_m = os.path.join(cwd, "model/m.pt")
+        path_original = os.path.join(cwd, "model/original.pt")
 
         try:
             self.model_vehicle = YOLO(path_m, task='detect')

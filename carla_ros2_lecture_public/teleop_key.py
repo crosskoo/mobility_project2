@@ -54,7 +54,7 @@ def main():
         print("No vehicle found. Make sure ros2_native.py spawned the hero.")
         return
 
-    veh.set_autopilot(False)
+    #veh.set_autopilot(False)
 
     ctrl = carla.VehicleControl(throttle=0.0, brake=0.0, steer=0.0,
                                 hand_brake=False, reverse=False)
