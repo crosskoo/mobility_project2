@@ -305,7 +305,7 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--host', default='localhost')
     argparser.add_argument('--port', type=int, default=2000)
-    argparser.add_argument('-f', '--file', default='koo.json', required=True)
+    argparser.add_argument('-f', '--file', default='lincoln.json', required=True)
     args = argparser.parse_args()
     logging.basicConfig(level=logging.INFO)
     main(args)

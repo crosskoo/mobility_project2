@@ -28,8 +28,8 @@ class SensorFusionNode(Node):
         print(">> Camera: FOV 110, 1280x720")
         
         cwd = os.getcwd()
-        path_m = os.path.join(cwd, "m.pt")         
-        path_original = os.path.join(cwd, "original.pt") 
+        path_m = os.path.join(cwd, "model/m.pt")         
+        path_original = os.path.join(cwd, "model/original.pt") 
 
         try:
             self.model_vehicle = YOLO(path_m, task='detect')

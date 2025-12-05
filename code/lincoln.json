@@ -13,7 +13,7 @@
             }
         },
         {
-            "type": "sensor.camera.view",
+            "type": "sensor.camera.rgb",
             "id": "camera_view",
             "spawn_point": {"x": -8.0, "y": 0.0, "z": 2.5, "roll": 0.0, "pitch": -15.0, "yaw": 0.0},
             "attributes": {
